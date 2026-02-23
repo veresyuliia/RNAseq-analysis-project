@@ -1,1 +1,298 @@
+---
+title: "Quarto Document Day 2"
+format: html
+editor: visual
+---
 
+## Original Tutorial Link
+
+<https://satijalab.org/seurat/articles/pbmc3k_tutorial.html>
+
+# Seurat - Guided Clustering Tutorial
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+library(Seurat)
+library(tidyverse)
+library(patchwork)
+```
+
+You can add options to executable code like this
+
+```{r}
+pbmc <- readRDS('~/R projects/day1-20250727T114252Z-1-001/day1/02_project_start/gex_only_ubds3.RDS')
+pbmc
+```
+
+```{r}
+# View gene names stored in the RNA assay
+rownames(pbmc)
+```
+
+```{r}
+# Lets examine a few genes in the first thirty cells
+pbmc[c("Il1rl1", "Creb1", "Bcl2"), 1:30]
+```
+
+```{r}
+# The [[ operator can add columns to object metadata. This is a great place to stash QC stats
+#pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^MT-")
+#pbmc
+```
+
+```{r}
+# Show QC metrics for the first 5 cells
+head(pbmc@meta.data, 5)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("nFeature_RNA"), ncol = 1, pt.size = 0.1)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("nFeature_RNA"), ncol = 1, pt.size = 0)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("nCount_RNA"), ncol = 1, pt.size = 0.1)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("nCount_RNA"), ncol = 1, pt.size = 0)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("percent.mt"), ncol = 1, pt.size = 0.1)
+```
+
+```{r}
+VlnPlot(pbmc, features = c("percent.mt"), ncol = 1, pt.size = 0)
+```
+
+```{r}
+# FeatureScatter is typically used to visualize feature-feature relationships, but can be used
+# for anything calculated by the object, i.e. columns in object metadata, PC scores etc.
+
+#plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt")
+
+plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot2
+
+#plot1 + plot2
+```
+
+Filtering — were issues with too harsh filtering
+
+```{r}
+#too harsh filtering
+#qced_pbmc <- subset(pbmc, subset = nFeature_RNA > 100 & nFeature_RNA < 1000 & percent.mt < 5)
+#qced_pbmc
+#qced_pbmc <- subset(pbmc, subset = nFeature_RNA > 100 & nFeature_RNA < 1000 & percent.mt < 5)
+#qced_pbmc
+```
+
+```{r}
+qced_pbmc <- subset(pbmc, subset = nFeature_RNA > 42 & nFeature_RNA < 120 & nCount_RNA > 10 & nCount_RNA < 2000)
+
+```
+
+```{r}
+qced_pbmc
+```
+
+```{r}
+VlnPlot(qced_pbmc, features = c("nFeature_RNA"), ncol = 1, pt.size = 0.1)
+```
+
+```{r}
+VlnPlot(qced_pbmc, features = c("nCount_RNA"), ncol = 1, pt.size = 0.1)
+```
+
+Number of cells per experiment after QC
+
+```{r}
+head(qced_pbmc@meta.data)
+```
+
+```{r}
+table(qced_pbmc$orig.ident)
+```
+
+```{r}
+plot3 <- FeatureScatter(qced_pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+plot3
+```
+
+Normalization
+
+```{r}
+norm_qced_pbmc <- NormalizeData(qced_pbmc, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+## Identification of highly variable features (feature selection)
+
+```{r}
+high_variable_pbmc <- FindVariableFeatures(norm_qced_pbmc, selection.method = "vst", nfeatures = 2000)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(high_variable_pbmc), 10)
+
+# plot variable features with and without labels
+plotA <- VariableFeaturePlot(high_variable_pbmc)
+plotB <- LabelPoints(plot = plotA, points = top10, repel = TRUE)
+plotA + plotB
+```
+
+## Scaling the data
+
+```{r}
+all.genes <- rownames(pbmc)
+scale_pbmc <- ScaleData(high_variable_pbmc, features = all.genes)
+```
+
+## Perform linear dimensional reduction
+
+Next we perform PCA on the scaled data. By default, only the previously determined variable features are used as input, but can be defined using `features` argument if you wish to choose a different subset (if you do want to use a custom subset of features, make sure you pass these to `ScaleData` first).
+
+```{r}
+lin_dim_red_pbmc <- RunPCA(scale_pbmc, features = VariableFeatures(object = scale_pbmc))
+lin_dim_red_pbmc
+```
+
+Seurat provides several useful ways of visualizing both cells and features that define the PCA, including `VizDimReduction()`, [`DimPlot()`](https://satijalab.org/seurat/reference/dimplot), and [`DimHeatmap()`](https://satijalab.org/seurat/reference/dimheatmap)
+
+```{r}
+# Examine and visualize PCA results a few different ways
+print(lin_dim_red_pbmc[["pca"]], dims = 1:5, nfeatures = 5)
+```
+
+```{r}
+VizDimLoadings(lin_dim_red_pbmc, dims = 1:2, reduction = "pca")
+```
+
+```{r}
+DimPlot(lin_dim_red_pbmc, reduction = "pca") + NoLegend()
+```
+
+An alternative heuristic method generates an ‘Elbow plot’: a ranking of principle components based on the percentage of variance explained by each one ([`ElbowPlot()`](https://satijalab.org/seurat/reference/elbowplot) function). In this example, we can observe an ‘elbow’ around PC9-10, suggesting that the majority of true signal is captured in the first 10 PCs.
+
+```{r}
+ElbowPlot(lin_dim_red_pbmc)
+```
+
+In particular [`DimHeatmap()`](https://satijalab.org/seurat/reference/dimheatmap) allows for easy exploration of the primary sources of heterogeneity in a dataset, and can be useful when trying to decide which PCs to include for further downstream analyses. Both cells and features are ordered according to their PCA scores. Setting `cells` to a number plots the ‘extreme’ cells on both ends of the spectrum, which dramatically speeds plotting for large datasets. Though clearly a supervised analysis, we find this to be a valuable tool for exploring correlated feature sets.
+
+```{r}
+DimHeatmap(lin_dim_red_pbmc, dims = 1, cells = 500, balanced = TRUE)
+```
+
+```{r}
+DimHeatmap(lin_dim_red_pbmc, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+## Cluster the cells
+
+|     |                   |     |                                              |     |
+|-----|-------------------|-----|----------------------------------------------|-----|
+|     |                   |     |                                              |     |
+|     | Step              |     | Purpose                                      |     |
+|     |                   |     |                                              |     |
+|     | `FindNeighbors()` |     | Create similarity graph between cells        |     |
+|     |                   |     |                                              |     |
+|     | `FindClusters()`  |     | Detect clusters (groups) from graph          |     |
+|     |                   |     |                                              |     |
+|     | `Idents`          |     | Stores current identity/cluster of each cell |     |
+|     |                   |     |                                              |     |
+
+```{r}
+obj <- FindNeighbors(obj, dims = 1:10)
+obj <- FindClusters(obj, resolution = 0.5)
+```
+
+-   **Modularity** is a measure of how well a network (graph) is divided into **clusters or communities**. It compares the actual density of edges within clusters to the expected density if the edges were random. A **higher modularity** means better-defined, more distinct clusters
+
+```{r}
+# Look at cluster IDs of the first 5 cells
+head(Idents(obj), 5)
+```
+
+## Run non-linear dimensional reduction (UMAP/tSNE)
+
+```{r}
+obj <- RunUMAP(obj, dims = 1:12)
+```
+
+```{r}
+# note that you can set `label = TRUE` or use the LabelClusters function to help label
+# individual clusters
+DimPlot(obj, reduction = "umap")
+```
+
+Plot the clusters that are computed on the same plot, paint by clusters
+
+```{r}
+saveRDS(obj, file = "~/DataProjectWeek2/hemato_preprocessed_nonlinred.rds")
+
+
+```
+
+```{r}
+obj <- readRDS("~/DataProjectWeek2/hemato_preprocessed_nonlinred.rds")
+```
+
+```{r}
+DimPlot(obj, reduction = "umap", group.by = "seurat_clusters")
+```
+
+## Finding differentially expressed features (cluster biomarkers)
+
+```{r}
+# find all markers of cluster 2
+cluster2.markers <- FindMarkers(obj, ident.1 = 2)
+head(cluster2.markers, n = 5)
+```
+
+```{r}
+#how to go to different layers
+obj@assays$RNA@layers$scale.data
+```
+
+```{r}
+count_umap <- FeaturePlot(obj, reduction = "umap", features = "nCount_RNA")
+feature_umap <- FeaturePlot(obj, reduction = "umap", features = "nFeature_RNA")
+```
+
+```{r}
+FeaturePlot(obj, reduction = "umap", features = "nFeature_RNA")
+```
+
+```{r}
+count_umap + feature_umap
+```
+
+## Finding differentially expressed features (cluster biomarkers)
+
+```{r}
+# find all markers of cluster 2
+cluster2.markers <- FindMarkers(obj, ident.1 = 2)
+head(cluster2.markers, n = 5)
+```
+
+```{r}
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster5.markers <- FindMarkers(obj, ident.1 = 5, ident.2 = c(0, 3))
+head(cluster5.markers, n = 5)
+```
+
+1.  How does FindMarkers() function compare gene expression in different clusters
+2.  why p_val and p_val_adj are 0
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive
+# ones
+pbmc.markers <- FindAllMarkers(obj, only.pos = TRUE)
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1)
+```
