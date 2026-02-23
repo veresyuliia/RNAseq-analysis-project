@@ -1,0 +1,402 @@
+---
+title: "30.07 Project Continue"
+format: html
+editor: visual
+---
+
+## Finding differentially expressed features (cluster biomarkers)
+
+```{r}
+obj <- readRDS("~/DataProjectWeek2/hemato_preprocessed_nonlinred.rds")
+```
+
+```{r}
+test <- subset(obj, !(seurat_clusters %in% c(7, 11)))
+```
+
+```{r}
+test
+```
+
+```{r}
+#saving cleared dataset with removed clusters
+saveRDS(test, file = "~/DataProjectWeek2/hemato_preprocessed_nonlinred_test.rds")
+```
+
+```{r}
+#working with clean dataset
+test_2 <- readRDS("~/DataProjectWeek2/hemato_preprocessed_nonlinred_test.rds")
+```
+
+```{r}
+# find all markers of cluster 2
+cluster2.markers <- FindMarkers(test_2, ident.1 = 2)
+head(cluster2.markers, n = 5)
+```
+
+```{r}
+# find all markers distinguishing cluster 5 from clusters 0 and 3
+cluster5.markers <- FindMarkers(test_2, ident.1 = 5, ident.2 = c(0, 3))
+head(cluster5.markers, n = 5)
+```
+
+1.  How does FindMarkers() function compares gene expression in different clusters
+2.  why p_val and p_val_adj are 0
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+pbmc.markers <- FindAllMarkers(test_2, only.pos = TRUE)
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1)
+```
+
+Test for differentiental expression
+
+```{r}
+cluster0.markers <- FindMarkers(test_2, ident.1 = 0, logfc.threshold = 0.25, test.use = "roc", only.pos = TRUE)
+```
+
+```{r}
+VlnPlot(test_2, features = c("Mboat1", "Cyp11a1"))
+```
+
+```{r}
+FeaturePlot(test_2, features = c("Mboat1", "Cyp11a1"))
+```
+
+```{r}
+RidgePlot(test_2, features = c("Mboat1", "Cyp11a1"))
+```
+
+```{r}
+DotPlot(test_2, features = c("Mboat1", "Cyp11a1"))
+```
+
+```{r}
+# you can plot raw counts as well
+VlnPlot(test_2, features = c("Mboat1", "Cyp11a1"), slot = "counts", log = TRUE)
+```
+
+```{r}
+FeaturePlot(test_2, features = c("Rpa2", "Cks2", "Igfbp4", "Cyp11a1", "Prss34", "Impdh2", "Gmnn", "Slbp", "Kif23"))
+```
+
+```{r}
+pbmc.markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1) %>%
+    slice_head(n = 10) %>%
+    ungroup() -> top10
+DoHeatmap(test_2, features = top10$gene) + NoLegend()
+```
+
+```{r}
+# Get top 5 genes with lowest p-values per cluster
+top_genes_per_cluster <- pbmc.markers %>%
+  group_by(cluster) %>%
+  arrange(p_val, .by_group = TRUE) %>%
+  slice_head(n = 5)
+
+top_genes_list <- split(top_genes_per_cluster$gene, top_genes_per_cluster$cluster)
+top_genes_list
+
+```
+
+```{r}
+top5 <- pbmc.markers %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  arrange(p_val, .by_group = TRUE) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+
+DoHeatmap(test_2, features = top5$gene) + NoLegend()
+```
+
+```{r}
+library(SingleR)
+library(celldex)
+
+ref <- celldex::HumanPrimaryCellAtlasData()
+expr <- GetAssayData(test_2, slot = "data")
+SingleR(test = expr, ref = ref, labels = ref$label.main)
+
+# Assign predicted labels to Seurat object
+obj$SingleR_labels <- pred$labels
+Idents(test_2) <- obj$SingleR_labels
+
+# Plot with annotated cell types
+DimPlot(test_2, label = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(patchwork)
+
+resol_clust <- FindClusters(test_2, resolution = c(0.2, 0.6, 1.0))
+
+resol_clust <- RunUMAP(resol_clust, dims = 1:20)
+
+#resolution=0.2, has 8 clusters 
+
+p1 <- DimPlot(resol_clust, group.by = "RNA_snn_res.0.2", reduction = "umap") + ggtitle("Resolution 0.2") + NoLegend()
+p2 <- DimPlot(resol_clust, group.by = "RNA_snn_res.0.6", reduction = "umap") + ggtitle("Resolution 0.6") + NoLegend()
+p3 <- DimPlot(resol_clust, group.by = "RNA_snn_res.1",   reduction = "umap") + ggtitle("Resolution 1.0") + NoLegend()
+
+p1 + p2 + p3
+
+```
+
+```{r}
+# Get top 5 genes with lowest p-values per cluster
+top_genes_per_cluster_0.2 <- pbmc.markers %>%
+    filter(cluster >= 0 & cluster <= 7)
+ # only clusters 0 to 7 for resolution 0.2
+  group_by(cluster) %>%
+  arrange(p_val, .by_group = TRUE) %>%
+  slice_head(n = 5)
+
+top_genes_list_0.2 <- split(top_genes_per_cluster_0.2$gene, top_genes_per_cluster_0.2$cluster)
+top_genes_list_0.2
+
+```
+
+```{r}
+BiocManager::install("celldex")
+BiocManager::install("SingleR")
+
+library(SingleR)
+library(celldex)
+
+ref <- celldex::HumanPrimaryCellAtlasData()
+
+expr <- GetAssayData(resol_clust, slot = "data")
+
+singler.results <- SingleR(test = expr, ref = ref, labels = ref$label.main)
+
+# Add SingleR labels to metadata
+obj$SingleR.labels <- singler.results$labels
+
+# Visualize
+DimPlot(resol_clust, group.by = "SingleR.labels", label = TRUE) + NoLegend()
+
+```
+
+```{r}
+colnames(colData(ref))
+```
+
+```{r}
+
+install.packages("remotes")
+
+# Install if not yet installed
+if (!require("remotes")) install.packages("remotes")
+remotes::install_github("IanevskiAleksandr/scType")
+
+# Load libraries
+library(scType)
+library(Seurat)
+library(dplyr)
+
+# Load marker file for scType (human or mouse)
+marker_file_url <- "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScType/data/ScTypeDB_full.csv"
+markers_df <- read.csv(marker_file_url)
+
+# Select only human markers
+markers_human <- markers_df %>% filter(Species == "Human")
+
+# Extract expression data from your Seurat object
+expr_matrix <- GetAssayData(resol_clust, slot = "data")  # Use "counts" if needed
+
+# Get cluster identities
+cluster_ids <- Idents(obj)
+
+# Run scType
+sctype_results <- sctype(exprs = expr_matrix,
+                         markers = markers_human,
+                         clusters = cluster_ids,
+                         tissue = "Immune system")  # or use "All" for broader match
+
+# View top annotations per cluster
+print(sctype_results$results$best)
+
+# Rename cluster identities in the Seurat object
+new_ids <- sctype_results$results$best$cell_type
+names(new_ids) <- sctype_results$results$best$cluster
+resol_clust <- RenameIdents(resol_clust, new_ids)
+
+# Visualize UMAP with cell type labels
+DimPlot(resol_clust, reduction = "umap", label = TRUE) + NoLegend()
+```
+
+1.  Google what genes correspond to what cell types
+2.  Create a dictionary, table or seurat object to annotate genes, markers and cell types
+3.  Recompute the differentially expressed genes and try to annotate the clusters with cell types
+
+```{r}
+{
+  "Cluster 0": {
+    "Genes": ["Slc6a4", "Hcp t8", "Ar14c", "Mboat1"],
+    "Inferred Cell Type": "Neuronal Subtype or Specialized Cells"
+  },
+  "Cluster 1": {
+    "Genes": ["Top2a", "Tacc3", "Cenpe", "Aurkb", "Tipin"],
+    "Inferred Cell Type": "Proliferating Cells (High Expression of Cell Cycle Genes)"
+  },
+  "Cluster 2": {
+    "Genes": ["Prss34", "Hcpt8", "Hgf", "Aqp9", "Cd200r3"],
+    "Inferred Cell Type": "Neutrophils / Specialized Epithelial Cells"
+  },
+  "Cluster 3": {
+    "Genes": ["Wfdc17", "Clec4n", "Mrc1", "Tgfbi", "Atp6v0d2"],
+    "Inferred Cell Type": "Macrophages / Myeloid Cells"
+  },
+  "Cluster 4": {
+    "Genes": ["Ctss", "Tgfbi", "Gda", "Hp", "Mpeg1"],
+    "Inferred Cell Type": "Macrophages / Myeloid Cells"
+  },
+  "Cluster 5": {
+    "Genes": ["Lrg1", "Hp", "C3", "Mgst2", "Gda"],
+    "Inferred Cell Type": "Epithelial Cells or Liver Cells"
+  },
+  "Cluster 6": {
+    "Genes": ["Rab38", "Slc18a2", "Car2", "Nkg7", "Impdh2"],
+    "Inferred Cell Type": "Natural Killer (NK) Cells / Cytotoxic T Cells"
+  },
+  "Cluster 7": {
+    "Genes": ["Cma1", "Gzmb", "Hbb-bt", "Prss34", "Kit"],
+    "Inferred Cell Type": "Natural Killer (NK) Cells / Cytotoxic T Cells"
+  },
+  "Cluster 8": {
+    "Genes": ["Cma1", "Gzmb", "Hbb-bt", "Prss34", "Kit"],
+    "Inferred Cell Type": "Natural Killer (NK) Cells / Cytotoxic T Cells"
+  },
+  "Cluster 9": {
+    "Genes": ["S100a9", "Lrg1", "Chi13", "Itgb2l", "Hp"],
+    "Inferred Cell Type": "Neutrophils / Myeloid Cells"
+  },
+  "Cluster 10": {
+    "Genes": ["Mpeg1", "Tgfbi", "Gpnmb", "Il6st", "Mrc1"],
+    "Inferred Cell Type": "Macrophages"
+  },
+  "Cluster 11": {
+    "Genes": ["Wfdc17", "Clec4n", "Gpr137b", "Tgfbi", "Mrc1"],
+    "Inferred Cell Type": "Macrophages / Dendritic Cells"
+  },
+  "Cluster 12": {
+    "Genes": ["Wfdc17", "Clec4n", "Gpr137b", "Tgfbi", "Mrc1"],
+    "Inferred Cell Type": "Macrophages / Dendritic Cells"
+  },
+  "Cluster 13": {
+    "Genes": ["Slc14a1", "Ehd3", "Slamf1", "Serpine2"],
+    "Inferred Cell Type": "Erythroid Cells / Reticulocytes"
+  }
+}
+```
+
+```{r}
+# Example data frame with Cluster IDs
+df <- data.frame(
+  Cell_ID = paste0("Cell", 1:20),
+  Cluster = sample(0:13, 20, replace = TRUE)
+)
+
+# Your legend: cluster ID to inferred cell type mapping
+cluster_annotation <- c(
+  "0" = "Neuronal Subtype or Specialized Cells",
+  "1" = "Proliferating Cells (High Expression of Cell Cycle Genes)",
+  "2" = "Neutrophils / Specialized Epithelial Cells",
+  "3" = "Macrophages / Myeloid Cells",
+  "4" = "Macrophages / Myeloid Cells",
+  "5" = "Epithelial Cells or Liver Cells",
+  "6" = "Natural Killer (NK) Cells / Cytotoxic T Cells",
+  "7" = "Natural Killer (NK) Cells / Cytotoxic T Cells",
+  "8" = "Natural Killer (NK) Cells / Cytotoxic T Cells",
+  "9" = "Neutrophils / Myeloid Cells",
+  "10" = "Macrophages",
+  "11" = "Macrophages / Dendritic Cells",
+  "12" = "Macrophages / Dendritic Cells",
+  "13" = "Erythroid Cells / Reticulocytes"
+)
+
+# Annotate the data frame using the cluster_annotation vector
+df$Inferred_Cell_Type <- cluster_annotation[as.character(df$Cluster)]
+
+# View the annotated data frame
+print(df)
+```
+
+```{r}
+library(Seurat)
+library(patchwork)
+
+# Your existing code:
+resol_clust <- FindClusters(test_2, resolution = c(0.2))
+#resol_clust <- RunUMAP(resol_clust, dims = 1:8)
+
+p1 <- DimPlot(resol_clust, group.by = "RNA_snn_res.0.2", reduction = "umap") + ggtitle("Resolution 0.2") + NoLegend()
+
+p1
+
+# --------- Manual annotation for clusters at resolution 1.0 ----------
+
+# Create a named vector for cluster-to-cell-type mapping (as characters)
+cluster_annotation <- c(
+  "0" = "Neuronal Subtype or Specialized Cells",
+  "1" = "Proliferating Cells (High Expression of Cell Cycle Genes)",
+  "2" = "Neutrophils / Specialized Epithelial Cells",
+  "3" = "Macrophages / Myeloid Cells",
+  "4" = "Macrophages / Myeloid Cells",
+  "5" = "Epithelial Cells or Liver Cells",
+  "6" = "Natural Killer (NK) Cells / Cytotoxic T Cells",
+  "7" = "Natural Killer (NK) Cells / Cytotoxic T Cells",
+  "8" = "Natural Killer (NK) Cells / Cytotoxic T Cells",
+  "9" = "Neutrophils / Myeloid Cells",
+  "10" = "Macrophages",
+  "11" = "Macrophages / Dendritic Cells",
+  "12" = "Macrophages / Dendritic Cells",
+  "13" = "Erythroid Cells / Reticulocytes"
+)
+
+# Extract cluster IDs as character vector from metadata
+clusters <- as.character(resol_clust@meta.data$RNA_snn_res.1)
+
+# Add new metadata column for inferred cell types
+resol_clust@meta.data$Inferred_Cell_Type <- cluster_annotation[clusters]
+
+# Check annotation on UMAP plot with labels for cell types
+DimPlot(resol_clust, group.by = "Inferred_Cell_Type", reduction = "umap") + ggtitle("Cell Type Annotation at Resolution 1.0")
+```
+
+```{r}
+# Create a named vector with cluster IDs as names and cell types as values.
+cluster_annotation <- c(
+    "0" = "Neuronal Subtype",
+    "1" = "Proliferating Cells",
+    "2" = "Neutrophils",
+    "3" = "Macrophages",
+    "4" = "Macrophages",
+    "5" = "Epithelial Cells",
+    "6" = "NK/T Cells",
+    "7" = "NK/T Cells",
+    "8" = "NK/T Cells",
+    "9" = "Neutrophils",
+    "10" = "Macrophages",
+    "11" = "Macrophages/Dendritic Cells",
+    "12" = "Macrophages/Dendritic Cells",
+    "13" = "Erythroid Cells"
+)
+
+# Now, add this new metadata column to your Seurat object.
+# Assuming your main Seurat object is named 'obj'
+obj$Inferred_Cell_Type <- cluster_annotation[obj$seurat_clusters]
+
+# Now you can visualize the plot using the new labels.
+DimPlot(obj,
+        group.by = "Inferred_Cell_Type",
+        reduction = "umap",
+        label = TRUE,
+        pt.size = 0.5)
+```
