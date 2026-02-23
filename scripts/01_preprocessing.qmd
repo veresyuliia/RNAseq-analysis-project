@@ -10,15 +10,12 @@ editor: visual
 
 # Seurat - Guided Clustering Tutorial
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
 ```{r}
 library(Seurat)
 library(tidyverse)
 library(patchwork)
 ```
 
-You can add options to executable code like this
 
 ```{r}
 pbmc <- readRDS('~/R projects/day1-20250727T114252Z-1-001/day1/02_project_start/gex_only_ubds3.RDS')
