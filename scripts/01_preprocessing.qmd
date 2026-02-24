@@ -1,14 +1,9 @@
 ---
-title: "Quarto Document Day 2"
+title: "29.07.2025 Pre-Processing"
 format: html
 editor: visual
 ---
 
-## Original Tutorial Link
-
-<https://satijalab.org/seurat/articles/pbmc3k_tutorial.html>
-
-# Seurat - Guided Clustering Tutorial
 
 ```{r}
 library(Seurat)
